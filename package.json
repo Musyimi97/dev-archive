@@ -4,6 +4,9 @@
   "private": true,
   "description": "Small Node.js server that autocompacts Development repos into a searchable Obsidian vault.",
   "type": "module",
+  "bin": {
+    "dev-archive": "./bin/dev-archive.js"
+  },
   "scripts": {
     "install:local": "bash scripts/install-local.sh",
     "start": "tsx src/server.ts",

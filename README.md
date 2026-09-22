@@ -52,6 +52,25 @@ Paste the markdown into the chat. Open only the paths under **Files to open**.
 
 `PORT` defaults to `43187`. `DEVELOPMENT_ROOT` and `VAULT_PATH` override the folders. See `.env.example`.
 
+## Session command
+
+Install the command once from this repo:
+
+```bash
+npm link
+dev-archive install
+```
+
+`dev-archive install` adds a Claude Code SessionStart hook and a Cursor `sessionStart` hook. Starting Claude, or a Cursor chat, in a checkout runs `dev-archive prep`: the server comes up in the background if port 43187 is closed, notes refresh, and the pack for that checkout enters the session.
+
+From a main checkout, create a sibling worktree and open Claude there:
+
+```bash
+dev-archive work kds-741-something
+```
+
+That writes `../<repo>-worktrees/kds-741-something`. Logs go to `~/Library/Logs/dev-archive.log`.
+
 ## One repo
 
 Open that repo as the Cursor or Claude Code workspace, for example `~/Development/tokenization-api`. Query with the repo name plus the task:
