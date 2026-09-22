@@ -3,3 +3,5 @@ vault
 agent-tools
 .DS_Store
 .env
+.superpowers/
+docs/superpowers/
