@@ -38,108 +38,127 @@ export function parseDevArchiveArgs(argv: string[]): DevArchiveArgs | null {
   return null;
 }
 
-const [, , cmd, ...rest] = process.argv;
-
+const isMain = path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
 const exec = promisify(execFile);
-const parsed = parseDevArchiveArgs([cmd, ...rest].filter((part): part is string => part !== undefined));
-if (cmd === "prep" || cmd === "work" || cmd === "install") {
-  if (!parsed) {
-    console.error("Usage: dev-archive <prep|work <branch>|install> [--hook=claude|cursor]");
-    process.exit(1);
-  }
-  if (parsed.cmd === "install") {
-    await installHooks({
-      claudeSettingsPath: path.join(os.homedir(), ".claude", "settings.json"),
-      cursorHooksPath: path.join(os.homedir(), ".cursor", "hooks.json"),
+
+function writeStream(
+  stream: NodeJS.WriteStream,
+  data: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.write(data, (err) => (err ? reject(err) : resolve()));
+  });
+}
+
+async function flushOutputsAndExit(
+  code: number,
+  stdout?: string,
+  stderr?: string,
+): Promise<never> {
+  if (stderr) await writeStream(process.stderr, stderr);
+  if (stdout) await writeStream(process.stdout, stdout);
+  process.exit(code);
+}
+
+if (isMain) {
+  const [, , cmd, ...rest] = process.argv;
+  const parsed = parseDevArchiveArgs(
+    [cmd, ...rest].filter((part): part is string => part !== undefined),
+  );
+
+  if (cmd === "prep" || cmd === "work" || cmd === "install") {
+    if (!parsed) {
+      console.error("Usage: dev-archive <prep|work <branch>|install> [--hook=claude|cursor]");
+      process.exit(1);
+    }
+    if (parsed.cmd === "install") {
+      await installHooks({
+        claudeSettingsPath: path.join(os.homedir(), ".claude", "settings.json"),
+        cursorHooksPath: path.join(os.homedir(), ".cursor", "hooks.json"),
+      });
+      process.exit(0);
+    }
+    if (parsed.cmd === "prep") {
+      const result = await runPrep(realPrepDeps(process.cwd(), parsed.hook));
+      await flushOutputsAndExit(result.code, result.stdout, result.stderr);
+    }
+    const result = await runWork({
+      cwd: process.cwd(),
+      branch: parsed.branch,
+      exists: async (target) => {
+        try {
+          await fs.stat(target);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      git: async (args, cwd) => {
+        try {
+          const { stdout, stderr } = await exec("git", args, { cwd });
+          return { code: 0, stdout, stderr };
+        } catch (error) {
+          const err = error as { code?: number; stdout?: string; stderr?: string };
+          return {
+            code: typeof err.code === "number" ? err.code : 1,
+            stdout: err.stdout ?? "",
+            stderr: err.stderr ?? "",
+          };
+        }
+      },
+      prep: async (cwd) => {
+        const prepared = await runPrep(realPrepDeps(cwd, null));
+        return { code: prepared.code, stderr: prepared.stderr };
+      },
+      execClaude: (cwd) =>
+        new Promise((resolve) => {
+          const child = spawn("claude", { cwd, stdio: "inherit" });
+          child.on("error", () => resolve({ ok: false }));
+          child.on("spawn", () => {
+            child.unref();
+            resolve({ ok: true });
+          });
+        }),
     });
+    await flushOutputsAndExit(result.code, result.stdout, result.stderr);
+  }
+
+  if (cmd === "vault") {
+    await ensureVault();
+    console.log(config.vaultPath);
+    console.log("Obsidian welcome screen → Open folder as vault → choose that folder.");
     process.exit(0);
   }
-  if (parsed.cmd === "prep") {
-    const result = await runPrep(realPrepDeps(process.cwd(), parsed.hook));
-    if (result.stderr) console.error(result.stderr);
-    if (result.stdout) process.stdout.write(result.stdout);
-    process.exit(result.code);
+
+  if (cmd === "index") {
+    const force = rest.includes("--force");
+    const job = await runIndex(force);
+    console.log(JSON.stringify(job, null, 2));
+    process.exit(job.status === "error" ? 1 : 0);
   }
-  const result = await runWork({
-    cwd: process.cwd(),
-    branch: parsed.branch,
-    exists: async (target) => {
-      try {
-        await fs.stat(target);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    git: async (args, cwd) => {
-      try {
-        const { stdout, stderr } = await exec("git", args, { cwd });
-        return { code: 0, stdout, stderr };
-      } catch (error) {
-        const err = error as { code?: number; stdout?: string; stderr?: string };
-        return {
-          code: typeof err.code === "number" ? err.code : 1,
-          stdout: err.stdout ?? "",
-          stderr: err.stderr ?? "",
-        };
-      }
-    },
-    prep: async (cwd) => {
-      const prepared = await runPrep(realPrepDeps(cwd, null));
-      return { code: prepared.code, stderr: prepared.stderr };
-    },
-    execClaude: (cwd) =>
-      new Promise((resolve) => {
-        const child = spawn("claude", { cwd, stdio: "inherit" });
-        child.on("error", () => resolve({ ok: false }));
-        child.on("spawn", () => {
-          child.unref();
-          resolve({ ok: true });
-        });
-      }),
-  });
-  if (result.stderr) console.error(result.stderr);
-  if (result.stdout) process.stdout.write(result.stdout);
-  process.exit(result.code);
-}
 
-if (cmd === "vault") {
-  await ensureVault();
-  console.log(config.vaultPath);
-  console.log("Obsidian welcome screen → Open folder as vault → choose that folder.");
-  process.exit(0);
-}
-
-if (cmd === "index") {
-  const force = rest.includes("--force");
-  const job = await runIndex(force);
-  console.log(JSON.stringify(job, null, 2));
-  process.exit(job.status === "error" ? 1 : 0);
-}
-
-if (cmd === "search") {
-  const q = rest.filter((a) => !a.startsWith("--")).join(" ");
-  const hits = await searchVault(q, 16);
-  for (const hit of hits) {
-    console.log(`${hit.score.toString().padStart(3)}  ${hit.path}  ${hit.snippet}`);
+  if (cmd === "search") {
+    const q = rest.filter((a) => !a.startsWith("--")).join(" ");
+    const hits = await searchVault(q, 16);
+    for (const hit of hits) {
+      console.log(`${hit.score.toString().padStart(3)}  ${hit.path}  ${hit.snippet}`);
+    }
+    process.exit(0);
   }
-  process.exit(0);
-}
 
-if (cmd === "context") {
-  const q = rest.filter((a) => a !== "--md" && !a.startsWith("--budget")).join(" ");
-  const budgetFlag = rest.find((a) => a.startsWith("--budget="));
-  const budget = budgetFlag ? Number(budgetFlag.split("=")[1]) : config.defaultBudget;
-  const pack = await buildContextPack(q, budget);
-  if (rest.includes("--md")) {
-    console.log(formatPackMarkdown(pack));
-  } else {
-    console.log(JSON.stringify(pack, null, 2));
+  if (cmd === "context") {
+    const q = rest.filter((a) => a !== "--md" && !a.startsWith("--budget")).join(" ");
+    const budgetFlag = rest.find((a) => a.startsWith("--budget="));
+    const budget = budgetFlag ? Number(budgetFlag.split("=")[1]) : config.defaultBudget;
+    const pack = await buildContextPack(q, budget);
+    if (rest.includes("--md")) {
+      console.log(formatPackMarkdown(pack));
+    } else {
+      console.log(JSON.stringify(pack, null, 2));
+    }
+    process.exit(0);
   }
-  process.exit(0);
-}
 
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
   console.error("Usage: tsx src/cli.ts <vault|index|search|context> [query]");
   process.exit(1);
 }
