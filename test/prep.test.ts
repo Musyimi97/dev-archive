@@ -140,4 +140,76 @@ describe("runPrep", () => {
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /index failed/);
   });
+
+  it("starts the server when nothing is listening, then prints the pack", async () => {
+    let started = 0;
+    let polls = 0;
+    const result = await runPrep(
+      deps({
+        fetchHealth: async () => {
+          polls += 1;
+          if (polls < 3) return null;
+          return {
+            ok: true,
+            developmentRoot: "/Users/collins/Development",
+            vaultPath: "/Users/collins/Documents/Development Archive",
+            hostname: "Collinss-MacBook-Pro.local",
+            pid: 7,
+          };
+        },
+        startServer: async () => {
+          started += 1;
+        },
+      }),
+    );
+    assert.equal(started, 1);
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /tokenization-api/);
+  });
+
+  it("does not start a server when the port answers but is not Dev Archive", async () => {
+    let started = 0;
+    const result = await runPrep(
+      deps({
+        healthWaitMs: 20,
+        fetchHealth: async () => ({ ok: false }),
+        startServer: async () => {
+          started += 1;
+        },
+      }),
+    );
+    assert.equal(started, 0);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /\/tmp\/dev-archive\.log/);
+  });
+
+  it("exits non-zero with an empty stdout when the server never answers", async () => {
+    const started = Date.now();
+    const result = await runPrep(
+      deps({
+        healthWaitMs: 40,
+        fetchHealth: async () => null,
+        startServer: async () => {},
+      }),
+    );
+    assert.ok(Date.now() - started < 15_000);
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /\/tmp\/dev-archive\.log/);
+  });
+
+  it("reports a dead server through hook JSON and exits 0", async () => {
+    const result = await runPrep(
+      deps({
+        hook: "cursor",
+        healthWaitMs: 20,
+        fetchHealth: async () => null,
+        startServer: async () => {},
+      }),
+    );
+    assert.equal(result.code, 0);
+    const body = JSON.parse(result.stdout);
+    assert.match(body.additional_context, /dev-archive\.log/);
+  });
 });

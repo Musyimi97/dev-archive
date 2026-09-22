@@ -26,9 +26,23 @@ export type PrepDeps = {
 export async function runPrep(deps: PrepDeps): Promise<{ code: number; stdout: string; stderr: string }> {
   const fail = (message: string) => finish(deps.hook, 1, "", message);
 
-  const health = await deps.fetchHealth();
+  const waitMs = deps.healthWaitMs ?? HEALTH_WAIT_MS;
+  let health = await deps.fetchHealth();
+  if (health === null) {
+    await deps.startServer();
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      health = await deps.fetchHealth();
+      if (health?.ok) break;
+      if (health && health.ok === false) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   if (!health?.ok) {
-    return fail(`Dev Archive is not healthy. See ${deps.logPath}`);
+    return fail(
+      `Dev Archive did not become healthy within ${waitMs}ms. See ${deps.logPath}`,
+    );
   }
 
   const developmentRoot = health.developmentRoot ?? "";
