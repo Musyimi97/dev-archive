@@ -4,7 +4,7 @@ export type WorkDeps = {
   cwd: string;
   branch: string;
   prep: (cwd: string) => Promise<{ code: number; stderr: string }>;
-  execClaude: (cwd: string) => Promise<{ ok: true } | { ok: false }>;
+  execClaude: (cwd: string) => Promise<{ ok: true; code?: number } | { ok: false }>;
   git: (
     args: string[],
     cwd: string,
@@ -25,13 +25,26 @@ export async function runWork(
     return { code: 1, stdout: "", stderr: `${deps.cwd} is not a git checkout` };
   }
 
+  const topLevel = await deps.git(["rev-parse", "--show-toplevel"], deps.cwd);
+  const repoRoot =
+    topLevel.code === 0 && topLevel.stdout.trim() !== ""
+      ? topLevel.stdout.trim()
+      : deps.cwd;
+
   const gitDir = await deps.git(["rev-parse", "--git-dir"], deps.cwd);
   const commonDir = await deps.git(["rev-parse", "--git-common-dir"], deps.cwd);
+  if (gitDir.code !== 0 || commonDir.code !== 0) {
+    return {
+      code: 1,
+      stdout: "",
+      stderr: `Could not verify that ${deps.cwd} is the main checkout: git metadata unavailable`,
+    };
+  }
   if (path.resolve(deps.cwd, gitDir.stdout.trim()) !== path.resolve(deps.cwd, commonDir.stdout.trim())) {
     return { code: 1, stdout: "", stderr: `${deps.cwd} is already a worktree` };
   }
 
-  const destination = worktreePath(deps.cwd, deps.branch);
+  const destination = worktreePath(repoRoot, deps.branch);
   if (await deps.exists(destination)) {
     return { code: 1, stdout: "", stderr: `${destination} already exists` };
   }
@@ -72,5 +85,5 @@ export async function runWork(
       stderr: stderr + "claude is not on PATH\n",
     };
   }
-  return { code: 0, stdout: "", stderr };
+  return { code: claude.code ?? 0, stdout: "", stderr };
 }

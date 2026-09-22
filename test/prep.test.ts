@@ -132,6 +132,21 @@ describe("runPrep", () => {
     assert.match(body.hookSpecificOutput.additionalContext, /index failed/);
   });
 
+  it("puts a thrown prep error in hook JSON and still exits 0", async () => {
+    const result = await runPrep(
+      deps({
+        hook: "cursor",
+        indexedName: async () => {
+          throw new Error("name lookup exploded");
+        },
+      }),
+    );
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const body = JSON.parse(result.stdout);
+    assert.match(body.additional_context, /name lookup exploded/);
+  });
+
   it("returns a terminal index error with no pack", async () => {
     const result = await runPrep(
       deps({ index: async () => ({ status: "error", error: "index failed" }) }),

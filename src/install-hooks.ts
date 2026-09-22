@@ -46,11 +46,21 @@ async function writeJson(
   let current: Record<string, unknown> = {};
   try {
     current = JSON.parse(await fs.readFile(file, "utf8")) as Record<string, unknown>;
-  } catch {
-    current = {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(update(current), null, 2) + "\n");
+  const tempFile = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`,
+  );
+  try {
+    await fs.writeFile(tempFile, JSON.stringify(update(current), null, 2) + "\n");
+    await fs.rename(tempFile, file);
+  } catch (error) {
+    await fs.rm(tempFile, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

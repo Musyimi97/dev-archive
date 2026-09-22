@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tsx = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
+if (process.argv[2] === "work") {
+  process.on("SIGINT", () => {});
+  process.on("SIGQUIT", () => {});
+}
 const result = spawnSync(
   process.execPath,
   [tsx, path.join(root, "src", "cli.ts"), ...process.argv.slice(2)],

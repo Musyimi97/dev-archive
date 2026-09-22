@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -31,14 +31,24 @@ export function parseDevArchiveArgs(argv: string[]): DevArchiveArgs | null {
     return { cmd: "prep", hook };
   }
   if (cmd === "work") {
-    if (rest.length !== 1 || rest[0].startsWith("-")) return null;
+    if (rest.length !== 1 || rest[0].trim() === "" || rest[0].startsWith("-")) return null;
     return { cmd: "work", branch: rest[0] };
   }
   if (cmd === "install" && rest.length === 0) return { cmd: "install" };
   return null;
 }
 
-const isMain = path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
+function resolvedRealpath(target: string): string {
+  try {
+    return realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+const isMain =
+  resolvedRealpath(process.argv[1] ?? "") ===
+  resolvedRealpath(fileURLToPath(import.meta.url));
 const exec = promisify(execFile);
 
 function writeStream(
@@ -79,9 +89,14 @@ if (isMain) {
       process.exit(0);
     }
     if (parsed.cmd === "prep") {
-      const result = await runPrep(realPrepDeps(process.cwd(), parsed.hook));
+      const input = await readHookInput(parsed.hook);
+      const cwd = resolveHookCwd(parsed.hook, input, process.cwd());
+      const result = await runPrep(realPrepDeps(cwd, parsed.hook));
       await flushOutputsAndExit(result.code, result.stdout, result.stderr);
     }
+    if (parsed.cmd !== "work") process.exit(1);
+    process.on("SIGINT", () => {});
+    process.on("SIGQUIT", () => {});
     const result = await runWork({
       cwd: process.cwd(),
       branch: parsed.branch,
@@ -110,15 +125,7 @@ if (isMain) {
         const prepared = await runPrep(realPrepDeps(cwd, null));
         return { code: prepared.code, stderr: prepared.stderr };
       },
-      execClaude: (cwd) =>
-        new Promise((resolve) => {
-          const child = spawn("claude", { cwd, stdio: "inherit" });
-          child.on("error", () => resolve({ ok: false }));
-          child.on("spawn", () => {
-            child.unref();
-            resolve({ ok: true });
-          });
-        }),
+      execClaude,
     });
     await flushOutputsAndExit(result.code, result.stdout, result.stderr);
   }
@@ -163,7 +170,61 @@ if (isMain) {
   process.exit(1);
 }
 
-function realPrepDeps(cwd: string, hook: "claude" | "cursor" | null) {
+export function resolveHookCwd(
+  hook: "claude" | "cursor" | null,
+  input: string,
+  fallback: string,
+): string {
+  if (!hook || input.trim() === "") return fallback;
+  try {
+    const body = JSON.parse(input) as Record<string, unknown>;
+    if (hook === "cursor") {
+      const roots = body.workspace_roots;
+      if (Array.isArray(roots) && typeof roots[0] === "string" && roots[0].length > 0) {
+        return roots[0];
+      }
+    }
+    if (typeof body.cwd === "string" && body.cwd.length > 0) return body.cwd;
+  } catch {
+    // Invalid hook input falls back to the process directory.
+  }
+  return fallback;
+}
+
+async function readHookInput(hook: "claude" | "cursor" | null): Promise<string> {
+  if (!hook || process.stdin.isTTY) return "";
+  if (process.stdin.readableEnded) return "";
+  return new Promise((resolve) => {
+    let input = "";
+    let timer: NodeJS.Timeout | undefined;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      process.stdin.off("error", onError);
+    };
+    const finish = () => {
+      cleanup();
+      process.stdin.pause();
+      resolve(input);
+    };
+    const onData = (chunk: Buffer | string) => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      input += chunk.toString();
+    };
+    const onEnd = () => finish();
+    const onError = () => finish();
+    process.stdin.on("data", onData);
+    process.stdin.once("end", onEnd);
+    process.stdin.once("error", onError);
+    timer = setTimeout(finish, 250);
+  });
+}
+
+export function realPrepDeps(cwd: string, hook: "claude" | "cursor" | null) {
   const port = config.port;
   return {
     cwd,
@@ -182,27 +243,61 @@ function realPrepDeps(cwd: string, hook: "claude" | "cursor" | null) {
       }
     },
     index: async () => {
-      const job = await runIndex(false);
-      if (job.status === "error") return { status: "error" as const, error: job.error };
+      const response = await fetch(`http://127.0.0.1:${port}/api/index`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      if (response.status === 409) {
+        const body = (await response.json()) as { error?: unknown };
+        return {
+          status: "error" as const,
+          error: typeof body.error === "string" ? body.error : "Index failed.",
+        };
+      }
+      if (!response.ok) {
+        return {
+          status: "error" as const,
+          error: `Index request failed with status ${response.status}.`,
+        };
+      }
       return { status: "done" as const, error: null };
     },
     indexedName: (dir: string) => indexedName(config.developmentRoot, dir),
-    packMarkdown: async (query: string) =>
-      formatPackMarkdown(await buildContextPack(query, config.defaultBudget)),
+    packMarkdown: async (query: string) => {
+      const params = new URLSearchParams({
+        q: query,
+        budget: String(config.defaultBudget),
+        format: "md",
+      });
+      const response = await fetch(
+        `http://127.0.0.1:${port}/api/context?${params.toString()}`,
+      );
+      if (!response.ok) {
+        throw new Error(`Context request failed with status ${response.status}.`);
+      }
+      return response.text();
+    },
   };
 }
 
-async function fetchHealth(port: number): Promise<HealthInfo | null> {
+export async function fetchHealth(port: number): Promise<HealthInfo | null> {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/health`);
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
     if (!response.ok) return { ok: false };
-    return (await response.json()) as HealthInfo;
+    try {
+      return (await response.json()) as HealthInfo;
+    } catch {
+      return { ok: false };
+    }
   } catch {
     return null;
   }
 }
 
-async function startDetached(archiveRoot: string): Promise<void> {
+export async function startDetached(archiveRoot: string): Promise<void> {
   const logPath = path.join(os.homedir(), "Library", "Logs", "dev-archive.log");
   await fs.mkdir(path.dirname(logPath), { recursive: true });
   const logFd = await fs.open(logPath, "a");
@@ -211,6 +306,39 @@ async function startDetached(archiveRoot: string): Promise<void> {
     detached: true,
     stdio: ["ignore", logFd.fd, logFd.fd],
   });
+  const started = new Promise<void>((resolve) => {
+    child.once("spawn", resolve);
+    child.once("error", async (error) => {
+      try {
+        await fs.appendFile(logPath, `${error.stack ?? error.message}\n`);
+      } catch {
+        // The original spawn error is already represented by failed health checks.
+      }
+      resolve();
+    });
+  });
   child.unref();
-  logFd.close();
+  await started;
+  await logFd.close().catch(() => {});
+}
+
+export function execClaude(
+  cwd: string,
+): Promise<{ ok: true; code?: number } | { ok: false }> {
+  return new Promise((resolve) => {
+    const child = spawn("claude", { cwd, stdio: "inherit" });
+    let settled = false;
+    child.once("error", () => {
+      if (!settled) {
+        settled = true;
+        resolve({ ok: false });
+      }
+    });
+    child.once("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        resolve({ ok: true, code: code ?? 1 });
+      }
+    });
+  });
 }

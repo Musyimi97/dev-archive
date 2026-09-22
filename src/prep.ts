@@ -26,50 +26,54 @@ export type PrepDeps = {
 export async function runPrep(deps: PrepDeps): Promise<{ code: number; stdout: string; stderr: string }> {
   const fail = (message: string) => finish(deps.hook, 1, "", message);
 
-  const waitMs = deps.healthWaitMs ?? HEALTH_WAIT_MS;
-  let health = await deps.fetchHealth();
-  if (health === null) {
-    await deps.startServer();
-    const deadline = Date.now() + waitMs;
-    while (Date.now() < deadline) {
-      health = await deps.fetchHealth();
-      if (health?.ok) break;
-      if (health && health.ok === false) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+  try {
+    const waitMs = deps.healthWaitMs ?? HEALTH_WAIT_MS;
+    let health = await deps.fetchHealth();
+    if (health === null) {
+      await deps.startServer();
+      const deadline = Date.now() + waitMs;
+      while (Date.now() < deadline) {
+        health = await deps.fetchHealth();
+        if (health?.ok) break;
+        if (health && health.ok === false) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
     }
-  }
 
-  if (!health?.ok) {
-    return fail(
-      `Dev Archive did not become healthy within ${waitMs}ms. See ${deps.logPath}`,
-    );
-  }
+    if (!health?.ok) {
+      return fail(
+        `Dev Archive did not become healthy within ${waitMs}ms. See ${deps.logPath}`,
+      );
+    }
 
-  const developmentRoot = health.developmentRoot ?? "";
-  if (!deps.developmentExists(developmentRoot)) {
-    return fail(
-      `No Development folder at ${developmentRoot}. Index aborted; nothing was written.`,
-    );
-  }
+    const developmentRoot = health.developmentRoot ?? "";
+    if (!deps.developmentExists(developmentRoot)) {
+      return fail(
+        `No Development folder at ${developmentRoot}. Index aborted; nothing was written.`,
+      );
+    }
 
-  if (health.hostname !== deps.hostname || health.vaultPath !== deps.expectedVaultPath) {
-    return fail(
-      `Refusing to use this process. hostname ${health.hostname ?? "unknown"} pid ${health.pid ?? "unknown"} vault ${health.vaultPath ?? "unknown"}`,
-    );
-  }
+    if (health.hostname !== deps.hostname || health.vaultPath !== deps.expectedVaultPath) {
+      return fail(
+        `Refusing to use this process. hostname ${health.hostname ?? "unknown"} pid ${health.pid ?? "unknown"} vault ${health.vaultPath ?? "unknown"}`,
+      );
+    }
 
-  const name = await deps.indexedName(deps.cwd);
-  if (!name) {
-    return fail(`${deps.cwd} is not an indexed project.`);
-  }
+    const name = await deps.indexedName(deps.cwd);
+    if (!name) {
+      return fail(`${deps.cwd} is not an indexed project.`);
+    }
 
-  const job = await deps.index();
-  if (job.status === "error") {
-    return fail(job.error ?? "Index failed.");
-  }
+    const job = await deps.index();
+    if (job.status === "error") {
+      return fail(job.error ?? "Index failed.");
+    }
 
-  const markdown = await deps.packMarkdown(name);
-  return finish(deps.hook, 0, markdown, "");
+    const markdown = await deps.packMarkdown(name);
+    return finish(deps.hook, 0, markdown, "");
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
 }
 
 function finish(
