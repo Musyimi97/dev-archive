@@ -1,0 +1,12 @@
+{
+  "name": "merchant-web",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "react": "^19.0.0"
+  }
+}

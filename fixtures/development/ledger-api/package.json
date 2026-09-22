@@ -1,0 +1,13 @@
+{
+  "name": "ledger-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "start": "node src/server.ts",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1"
+  }
+}

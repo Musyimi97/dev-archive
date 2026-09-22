@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>Dev Archive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="rail">
+        <div class="brand">
+          <p class="eyebrow">Obsidian vault</p>
+          <h1>Dev Archive</h1>
+          <p class="lede">
+            Compact notes for every repo in Development. Search the vault, not the tree.
+          </p>
+        </div>
+        <dl class="meta" id="meta">
+          <div>
+            <dt>Development</dt>
+            <dd id="dev-path">…</dd>
+          </div>
+          <div>
+            <dt>Obsidian vault</dt>
+            <dd id="vault-path">…</dd>
+          </div>
+          <div>
+            <dt>Repos</dt>
+            <dd id="repo-count">—</dd>
+          </div>
+          <div>
+            <dt>Notes</dt>
+            <dd id="note-count">—</dd>
+          </div>
+          <div>
+            <dt>Hostname</dt>
+            <dd id="server-host">…</dd>
+          </div>
+          <div>
+            <dt>PID</dt>
+            <dd id="server-pid">…</dd>
+          </div>
+          <div>
+            <dt>Working directory</dt>
+            <dd id="server-cwd">…</dd>
+          </div>
+        </dl>
+        <div class="rail-actions">
+          <button type="button" id="index-btn">Re-index vault</button>
+          <p class="hint" id="job-line">Idle</p>
+        </div>
+        <nav class="repo-nav" id="repo-list" aria-label="Indexed repos"></nav>
+      </aside>
+
+      <main class="main">
+        <form class="search-bar" id="search-form">
+          <label class="sr-only" for="q">Search vault</label>
+          <input
+            id="q"
+            name="q"
+            type="search"
+            placeholder="webhook secret, token refresh, ledger…"
+            autocomplete="off"
+            autofocus
+          />
+          <label class="budget">
+            Budget
+            <input id="budget" type="number" min="400" max="8000" step="200" value="1800" />
+          </label>
+          <button type="submit">Load context</button>
+        </form>
+
+        <p class="status" id="banner" hidden></p>
+
+        <section class="split">
+          <article class="panel">
+            <header>
+              <h2>Hits</h2>
+              <p>Ranked notes from the vault. Cheap to scan.</p>
+            </header>
+            <div id="hits" class="hits empty-block">
+              <p class="empty">Ask for a subsystem. The archive returns notes, not source dumps.</p>
+            </div>
+          </article>
+          <article class="panel pack">
+            <header>
+              <h2>Context pack</h2>
+              <p id="pack-meta">Token-budgeted bundle for an agent.</p>
+            </header>
+            <pre class="curl" id="curl"></pre>
+            <div id="pack" class="pack-body empty-block">
+              <p class="empty">
+                Load context first. Paste the pack into a chat instead of attaching a repo.
+              </p>
+            </div>
+          </article>
+        </section>
+
+        <article class="panel note-panel" id="note-panel" hidden>
+          <header>
+            <h2 id="note-title">Note</h2>
+            <p id="note-path"></p>
+          </header>
+          <pre id="note-body"></pre>
+        </article>
+      </main>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "email-ingest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/ingest.ts",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1"
+  }
+}

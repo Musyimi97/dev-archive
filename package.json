@@ -1,0 +1,30 @@
+{
+  "name": "dev-archive",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small Node.js server that autocompacts Development repos into a searchable Obsidian vault.",
+  "type": "module",
+  "scripts": {
+    "install:local": "bash scripts/install-local.sh",
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "vault": "tsx src/cli.ts vault",
+    "index": "tsx src/cli.ts index",
+    "context": "tsx src/cli.ts context",
+    "search": "tsx src/cli.ts search",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/static": "^10.1.4",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
