@@ -117,3 +117,10 @@ export async function discoverRepos(root: string): Promise<RepoRef[]> {
   found.sort((a, b) => a.name.localeCompare(b.name));
   return found;
 }
+
+export async function indexedName(developmentRoot: string, cwd: string): Promise<string | null> {
+  const resolved = path.resolve(cwd);
+  const repos = await discoverRepos(developmentRoot);
+  const match = repos.find((repo) => path.resolve(repo.path) === resolved);
+  return match?.name ?? null;
+}
